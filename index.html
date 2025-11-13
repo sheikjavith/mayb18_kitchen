@@ -1,0 +1,496 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>MayB18 — Local Excel Billing</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;background:#f4f6f8;margin:0;color:#111}
+    header{background:#2c3e50;color:#fff;padding:16px;text-align:center}
+    .brand{font-size:26px;font-weight:800;color:#f39c12}
+    .container{max-width:1200px;margin:16px auto;padding:0 12px}
+    .topbar{display:flex;gap:8px;align-items:center}
+    input,select,button{padding:8px;border-radius:6px;border:1px solid #e6eef6}
+    button{cursor:pointer;background:#2c3e50;color:#fff;border:0}
+    .layout{display:grid;grid-template-columns:240px 1fr 420px;gap:12px;margin-top:14px}
+    .card{background:#fff;padding:12px;border-radius:8px;box-shadow:0 8px 20px rgba(0,0,0,0.04)}
+  .tableBtn{padding:10px;border:1px solid #eef2f7;border-radius:6px;margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between}
+  .tableBtn.active{background:#fbf6ec;border-color:#f1c40f}
+  /* highlight tables that currently have items in cart */
+  .tableBtn.has-items{background:#e8f9f2;border-color:#1abc9c}
+    .items{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+    .item{padding:10px;border:1px solid #eef7ff;border-radius:6px;min-width:160px;cursor:pointer;background:#fdfefe}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:8px;border-bottom:1px solid #f1f3f6}
+    .small{font-size:13px;color:#666}
+    .actions{display:flex;gap:8px;margin-top:12px}
+    @media(max-width:980px){ .layout{grid-template-columns:1fr} .topbar{flex-direction:column;align-items:flex-start} }
+  </style>
+</head>
+<body>
+<header><div class="brand">MayB18 Kitchen</div><div>Billing Software</div></header>
+<div class="container">
+  <div class="topbar">
+    <input id="hotelName" placeholder="Hotel name" style="width:260px" value="MayB18 Kitchen"/>
+    <input id="hotelAddr" placeholder="Address" style="width:480px" value="No. 86C, Ambour Salai, Puducherry - 605001 | Ph: +91 82201 02966"/>
+    <div style="flex:1"></div>
+    <button onclick="window.location.reload()">Reload</button>
+  </div>
+
+  <div class="layout">
+    <!-- left: tables -->
+    <div class="card">
+      <div style="font-weight:800">Tables</div>
+      <div class="small">Click to open a table</div>
+      <div id="tables" style="margin-top:12px"></div>
+      <div class="actions" style="margin-top:12px">
+        <button onclick="downloadFile('/download/menu.xlsx')">Download menu.xlsx</button>
+        <button onclick="downloadFile('/download/bills.xlsx')">Download bills.xlsx</button>
+      </div>
+    </div>
+
+    <!-- center: menu items -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div id="activeTableLabel" style="font-weight:800">Select a table</div>
+          <div id="hint" class="small">Menu loaded from menu.xlsx (no samples auto-inserted).</div>
+        </div>
+        <div>
+          <select id="categorySelect" onchange="renderItems()"></select>
+          <input id="search" placeholder="Search item..." oninput="renderItems()" style="width:220px;margin-left:8px"/>
+        </div>
+      </div>
+
+      <div id="items" class="items"></div>
+
+      <div style="margin-top:12px">
+        <button onclick="toggleAddMenu()">Add Menu</button>
+        <span class="small" style="margin-left:8px">Adds directly to menu.xlsx</span>
+      </div>
+
+      <div id="addMenu" style="display:none;margin-top:10px">
+        <input id="m_cat" placeholder="Category"/>
+        <input id="m_item" placeholder="Item name"/>
+        <input id="m_price" placeholder="Price" type="number"/>
+        <button onclick="addMenu()">Save Menu</button>
+      </div>
+    </div>
+
+    <!-- right: cart -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="font-weight:800">Cart</div>
+        <div id="cartTableLabel" class="small">No table</div>
+      </div>
+
+      <div style="margin-top:8px">
+        <table id="cartTable">
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Quantity</th>
+              <th>Rate</th>
+              <th>Amt</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;margin-top:8px">
+        <div class="small">Items: <span id="itemsCount">0</span></div>
+        <div style="font-weight:800" id="grandTotal">₹0.00</div>
+      </div>
+
+      <div class="actions">
+        <button onclick="clearCart()">Cancel</button>
+        <button onclick="openRaiseModal()">Raise Bill</button>
+      </div>
+
+      <div style="margin-top:12px">
+        <button onclick="showBills()">See Bills</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- see bills area (same page modal-like) -->
+  <div id="billsArea" style="display:none;margin-top:12px" class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div style="font-weight:800">All Bills (10 AM - 12 PM)</div>
+      <div>
+        <input id="billFilter" placeholder="Filter (bill/table/item)" oninput="renderBills()" />
+        <button onclick="downloadFile('/download/bills.xlsx')">Download XLSX</button>
+        <button onclick="document.getElementById('billsArea').style.display='none'">Close</button>
+      </div>
+    </div>
+    <div style="margin-top:8px;overflow:auto">
+      <table id="billsTable"><thead><tr><th>Bill No</th><th>DateTime</th><th>Table</th><th>Total</th><th>Payment</th><th>Items</th></tr></thead><tbody></tbody></table>
+    </div>
+
+    <!-- ➕ ADDED: Summary Section -->
+    <div id="billsSummary" style="margin-top:12px;font-weight:700;padding:10px;border-top:2px solid #ccc;">
+      <div>Total Sale: ₹<span id="totalSale">0.00</span></div>
+      <div>Paytm Sale: ₹<span id="paytmSale">0.00</span></div>
+      <div>Cash Sale: ₹<span id="cashSale">0.00</span></div>
+      <div>Card Sale: ₹<span id="cardSale">0.00</span></div>
+      <div>Swiggy Sale: ₹<span id="swiggySale">0.00</span></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Raise bill modal (simple in-page section) -->
+<div id="raiseModal" style="display:none;position:fixed;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,0.45);align-items:center;justify-content:center">
+  <div style="background:#fff;padding:20px;border-radius:8px;max-width:720px;margin:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div><strong id="modalTitle">Bill Preview</strong></div>
+      <div><button onclick="closeRaiseModal()">Close</button></div>
+    </div>
+  <input type="hidden" id="modalBillNo"/>
+  <input type="hidden" id="modalDateTime"/>
+    <div id="printArea" style="margin-top:12px"></div>
+      <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">
+      <select id="paymentSelect"><option>Cash</option><option>Paytm</option><option>Card</option><option>Swiggy</option></select>
+      <button onclick="printPreview()">Print</button>
+      <button onclick="saveBill()">Save Bill</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Frontend logic */
+const TABLES = {{ tables|tojson }};
+let MENU = {};
+let CARTS = {};
+let ACTIVE_TABLE = null;
+
+function init(){
+  // make sure server has created files
+  fetch('/api/menu').then(r=>r.json()).then(data=>{
+    MENU = data || {};
+    renderCategories();
+    renderItems();
+  });
+
+  // setup tables
+  const tdiv = document.getElementById('tables');
+  tdiv.innerHTML = '';
+  TABLES.forEach(t=>{
+    CARTS[t] = {};
+    const btn = document.createElement('div');
+    btn.className = 'tableBtn';
+    btn.textContent = t;
+    btn.onclick = ()=> selectTable(t, btn);
+    tdiv.appendChild(btn);
+  });
+  // set initial indicators (none have items yet, but keeps UI consistent)
+  updateCartUI();
+}
+
+function renderCategories(){
+  const sel = document.getElementById('categorySelect');
+  sel.innerHTML = '';
+  Object.keys(MENU).forEach(cat=>{
+    const opt = document.createElement('option'); opt.value = cat; opt.textContent = cat;
+    sel.appendChild(opt);
+  });
+  if(!sel.value) sel.value = Object.keys(MENU)[0] || '';
+}
+
+function renderItems(){
+  const cat = document.getElementById('categorySelect').value || Object.keys(MENU)[0];
+  const q = (document.getElementById('search').value||'').toLowerCase();
+  const cont = document.getElementById('items');
+  cont.innerHTML = '';
+  (MENU[cat]||[]).filter(it => !q || it.name.toLowerCase().includes(q)).forEach(it=>{
+    const d = document.createElement('div'); d.className='item';
+    d.innerHTML = `<div style="font-weight:700">${it.name}</div><div>₹${Number(it.price).toFixed(2)}</div>`;
+    d.onclick = ()=> addItem(it);
+    cont.appendChild(d);
+  });
+}
+
+function selectTable(name, el){
+  ACTIVE_TABLE = name;
+  document.getElementById('activeTableLabel').textContent = name;
+  document.getElementById('cartTableLabel').textContent = name;
+  document.querySelectorAll('.tableBtn').forEach(b=> b.classList.toggle('active', b.textContent===name));
+  updateCartUI();
+}
+
+function addItem(it){
+  if(!ACTIVE_TABLE){ alert('Select a table first'); return; }
+  const cart = CARTS[ACTIVE_TABLE];
+  if(cart[it.name]) cart[it.name].qty += 1;
+  else cart[it.name] = { name: it.name, qty: 1, rate: Number(it.price), amount: 0 };
+  cart[it.name].amount = cart[it.name].qty * cart[it.name].rate;
+  updateCartUI();
+}
+
+function adjustQuantity(itemName, delta) {
+  if(!ACTIVE_TABLE) return;
+  const cart = CARTS[ACTIVE_TABLE];
+  if(cart[itemName]) {
+    const newQty = cart[itemName].qty + delta;
+    if(newQty <= 0) {
+      delete cart[itemName];
+    } else {
+      cart[itemName].qty = newQty;
+      cart[itemName].amount = cart[itemName].qty * cart[itemName].rate;
+    }
+    updateCartUI();
+  }
+}
+
+function updateCartUI(){
+  const tbody = document.querySelector('#cartTable tbody');
+  // update table buttons to show which tables have items
+  document.querySelectorAll('.tableBtn').forEach(b=>{
+    const name = b.textContent;
+    const has = Object.keys(CARTS[name] || {}).length > 0;
+    b.classList.toggle('has-items', has);
+    b.classList.toggle('active', name === ACTIVE_TABLE);
+  });
+  tbody.innerHTML = '';
+  if(!ACTIVE_TABLE){ 
+    tbody.innerHTML = '<tr><td colspan="5">Open a table</td></tr>'; 
+    document.getElementById('grandTotal').innerText='₹0.00'; 
+    document.getElementById('itemsCount').innerText='0'; 
+    return; 
+  }
+  const cart = CARTS[ACTIVE_TABLE];
+  const keys = Object.keys(cart);
+  if(keys.length === 0){ 
+    tbody.innerHTML = '<tr><td colspan="5">Cart empty</td></tr>'; 
+    document.getElementById('grandTotal').innerText='₹0.00'; 
+    document.getElementById('itemsCount').innerText='0'; 
+    return; 
+  }
+  let total = 0, count = 0;
+  keys.forEach(k=>{
+    const it = cart[k];
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${it.name}</td>
+      <td>${it.qty}</td>
+      <td>₹${it.rate.toFixed(2)}</td>
+      <td>₹${it.amount.toFixed(2)}</td>
+      <td>
+        <button onclick="adjustQuantity('${it.name}', -1)" style="margin-right:4px">-</button>
+        <button onclick="adjustQuantity('${it.name}', 1)">+</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+    total += it.amount; count += it.qty;
+  });
+  document.getElementById('grandTotal').innerText = '₹' + total.toFixed(2);
+  document.getElementById('itemsCount').innerText = count;
+}
+
+function clearCart(){
+  if(!ACTIVE_TABLE) return alert('Open a table');
+  if(!confirm('Clear cart for ' + ACTIVE_TABLE + '?')) return;
+  CARTS[ACTIVE_TABLE] = {};
+  updateCartUI();
+}
+
+function toggleAddMenu(){ document.getElementById('addMenu').style.display = (document.getElementById('addMenu').style.display === 'none' ? 'block' : 'none'); }
+
+async function addMenu(){
+  const cat = document.getElementById('m_cat').value.trim();
+  const name = document.getElementById('m_item').value.trim();
+  const price = Number(document.getElementById('m_price').value || 0);
+  if(!cat || !name || !price) return alert('Provide category, name and price');
+  const payload = { category: cat, name: name, price: price };
+  const res = await fetch('/api/menu', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+  if(res.ok){
+    alert('Menu saved to menu.xlsx');
+    // reload menu
+    const r = await fetch('/api/menu'); MENU = await r.json();
+    renderCategories(); renderItems();
+    document.getElementById('m_cat').value=''; document.getElementById('m_item').value=''; document.getElementById('m_price').value='';
+    document.getElementById('addMenu').style.display='none';
+  } else {
+    alert('Failed to save menu');
+  }
+}
+
+async function openRaiseModal(){
+  if(!ACTIVE_TABLE) return alert('Open a table');
+  const cart = CARTS[ACTIVE_TABLE];
+  if(Object.keys(cart).length===0) return alert('Cart empty');
+  // Get next bill number
+  const nextRes = await fetch('/api/next_bill_no');
+  const j = await nextRes.json();
+  document.getElementById('modalBillNo').value = j.next;
+  // build HTML
+  const printArea = document.getElementById('printArea');
+  const hotel = document.getElementById('hotelName').value;
+  const addr = document.getElementById('hotelAddr').value;
+  const currentDate = new Date();
+  // store ISO timestamp so saveBill and print use the same exact time
+  document.getElementById('modalDateTime').value = currentDate.toISOString();
+  let html = `<div style="text-align:center"><h2>${hotel}</h2><div>${addr}</div><hr/></div>`;
+  html += `<div>
+    <div><strong>Bill No: </strong>${document.getElementById('modalBillNo').value}</div>
+    <div><strong>Date: </strong>${currentDate.toLocaleDateString()}</div>
+    <div><strong>Time: </strong>${currentDate.toLocaleTimeString()}</div>
+    <div><strong>Table: </strong>${ACTIVE_TABLE}</div>
+  </div>`;
+  html += `<table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left">S.no</th><th style="text-align:left">Item</th><th style="text-align:right">Qty</th><th style="text-align:right">Rate</th><th style="text-align:right">Amt</th></tr></thead><tbody>`;
+  let total = 0; let i = 1;
+  Object.values(cart).forEach(it=>{
+    html += `<tr><td>${i}</td><td>${it.name}</td><td style="text-align:right">${it.qty}</td><td style="text-align:right">₹${it.rate.toFixed(2)}</td><td style="text-align:right">₹${it.amount.toFixed(2)}</td></tr>`;
+    total += it.amount; i++;
+  });
+  html += `</tbody></table>`;
+  html += `<div style="text-align:right;font-weight:800;margin-top:8px">Total: ₹${total.toFixed(2)}</div>`;
+  html += `<div class="thank-you">Thank you, visit again ❤</div>`;
+  printArea.innerHTML = html;
+  document.getElementById('raiseModal').style.display = 'flex';
+}
+
+function closeRaiseModal(){ document.getElementById('raiseModal').style.display = 'none'; }
+
+function printPreview() {
+  const content = document.getElementById('printArea').innerHTML;
+  const w = window.open('', '_blank', 'width=350,height=600');
+
+  w.document.write(`
+    <html>
+    <head>
+      <meta charset="utf-8"/>
+      <title>Print Bill</title>
+      <style>
+        @media print {
+          @page {
+            size: 58mm auto; /* ✅ Perfect for small thermal printers */
+            margin: 0;
+          }
+          body {
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            line-height: 1.3;
+            padding: 3px 6px 12px 6px; /* Reduced top padding, more bottom padding */
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 3px; /* Reduced top margin */
+          }
+          th, td {
+            text-align: left;
+            padding: 2px 0;
+          }
+          th {
+            border-bottom: 1px dashed #000;
+            font-weight: bold;
+          }
+          td:last-child, th:last-child {
+            text-align: right;
+          }
+          hr {
+            border: 0;
+            border-top: 1px dashed #000;
+            margin: 3px 0;  /* Reduced margins */
+          }
+          h2 {
+            font-size: 13px;
+            margin: 0 0 2px 0; /* Reduced top margin */
+          }
+          .center {
+            text-align: center;
+          }
+          .total {
+            font-weight: bold;
+            text-align: right;
+            margin-top: 4px;
+          }
+          .thank-you {
+            text-align: center;
+            margin-top: 8px;
+            font-size: 11px;
+          }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="center">${content}</div>
+    </body>
+    </html>
+  `);
+
+  w.document.close();
+  w.focus();
+  w.print();
+  w.close();
+}
+
+
+async function saveBill(){
+  if(!ACTIVE_TABLE) return alert('Open a table');
+  const cart = CARTS[ACTIVE_TABLE];
+  const items = Object.values(cart).map(it=>({ name: it.name, qty: it.qty, rate: it.rate, amount: it.amount }));
+  const total = items.reduce((s,i)=>s+i.amount,0);
+  const nextRes = await fetch('/api/next_bill_no'); const j = await nextRes.json(); const billNo = j.next;
+  const storedDt = document.getElementById('modalDateTime') ? document.getElementById('modalDateTime').value : null;
+  const payload = { billNo: billNo, dateTime: storedDt || new Date().toISOString(), table: ACTIVE_TABLE, payment: document.getElementById('paymentSelect').value, total: total, items: items };
+  const res = await fetch('/api/bills', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+  if(res.ok){
+    alert('Bill saved to bills.xlsx');
+    CARTS[ACTIVE_TABLE] = {};
+    updateCartUI();
+    closeRaiseModal();
+  } else {
+    alert('Failed to save bill');
+  }
+}
+
+async function showBills(){
+  document.getElementById('billsArea').style.display = 'block';
+  await renderBills();
+}
+
+async function renderBills(){
+  const res = await fetch('/api/bills');
+  const all = await res.json();
+  const q = (document.getElementById('billFilter').value||'').toLowerCase();
+  const tbody = document.querySelector('#billsTable tbody'); tbody.innerHTML = '';
+  all.slice().reverse().forEach(b=>{
+    const items = (b.items||[]).map(i=> `${i.name}(${i.qty})`).join(', ');
+    if(q && !(String(b.billNo).includes(q) || (b.table||'').toLowerCase().includes(q) || items.toLowerCase().includes(q))) return;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${b.billNo}</td><td>${b.dateTime}</td><td>${b.table}</td><td>₹${Number(b.total).toFixed(2)}</td><td>${b.payment || ''}</td><td>${items}</td>`;
+    tbody.appendChild(tr);
+  });
+
+  // ➕ ADDED: Compute and show totals
+  let totalSale = 0, paytm = 0, cash = 0, card = 0, swiggy = 0;
+  all.forEach(b => {
+    const amt = Number(b.total) || 0;
+    totalSale += amt;
+    const p = (b.payment || '').toLowerCase();
+    if (p.includes('paytm')) paytm += amt;
+    else if (p.includes('cash')) cash += amt;
+    else if (p.includes('card')) card += amt;
+    else if (p.includes('swiggy')) swiggy += amt;
+  });
+  document.getElementById('totalSale').textContent = totalSale.toFixed(2);
+  document.getElementById('paytmSale').textContent = paytm.toFixed(2);
+  document.getElementById('cashSale').textContent = cash.toFixed(2);
+  document.getElementById('cardSale').textContent = card.toFixed(2);
+  document.getElementById('swiggySale').textContent = swiggy.toFixed(2);
+}
+
+function downloadFile(url){
+  window.location = url;
+}
+
+/* boot */
+window.TABLES = {{ tables|tojson }};
+init();
+</script>
+</body>
+</html>
